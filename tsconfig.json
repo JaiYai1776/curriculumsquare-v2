@@ -29,6 +29,6 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     "**/*.mts"
-  ],
+, "prisma.config.bak", "prisma/seed.cjs"  ],
   "exclude": ["node_modules"]
 }

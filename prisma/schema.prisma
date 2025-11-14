@@ -1,0 +1,48 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  CUSTOMER
+  VENDOR
+  STAFF
+  ADMIN
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  role      UserRole @default(CUSTOMER)
+  createdAt DateTime @default(now())
+
+  // relations for later
+  // vendor Vendor?
+}
+
+model Vendor {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products  Product[]
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  vendor      Vendor   @relation(fields: [vendorId], references: [id])
+  vendorId    String
+
+  title       String
+  slug        String   @unique
+  priceCents  Int
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
