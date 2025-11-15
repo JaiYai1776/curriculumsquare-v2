@@ -1,20 +1,17 @@
-// app/admin/products/new/page.tsx
+// app/admin/products/[id]/page.tsx
 import { prisma } from '@/lib/prisma';
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
 import Link from 'next/link';
 
-function slugify(input: string) {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
+type Props = {
+  params: Promise<{ id: string }>;
+};
 
-async function createProduct(formData: FormData) {
+async function updateProduct(formData: FormData) {
   'use server';
 
+  const id = formData.get('id') as string | null;
   const title = (formData.get('title') as string | null)?.trim();
   const subtitle = (formData.get('subtitle') as string | null)?.trim() || null;
   const price = (formData.get('price') as string | null)?.trim();
@@ -34,9 +31,8 @@ async function createProduct(formData: FormData) {
     (formData.get('thumbnailUrl') as string | null)?.trim() || null;
   const featuredRaw = formData.get('featured') as string | null;
 
-  if (!title || !price) {
-    throw new Error('Title and price are required');
-  }
+  if (!id) throw new Error('Missing product id');
+  if (!title || !price) throw new Error('Title and price are required');
 
   const priceNumber = Number(price);
   if (Number.isNaN(priceNumber) || priceNumber <= 0) {
@@ -56,62 +52,74 @@ async function createProduct(formData: FormData) {
   const ageMax = ageMaxRaw ? Number(ageMaxRaw) : null;
   const featured = featuredRaw === 'on';
 
-  // Still attach to your default vendor for now
-  const vendor = await prisma.vendor.findUnique({
-    where: { slug: 'tried-and-true' },
-  });
-
-  if (!vendor) {
-    throw new Error('Default vendor "tried-and-true" not found. Did you run the seed?');
-  }
-
-  const baseSlug = slugify(title);
-  let slug = baseSlug || `product-${Date.now()}`;
-  let suffix = 1;
-  // ensure unique slug
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    const existing = await prisma.product.findUnique({ where: { slug } });
-    if (!existing) break;
-    slug = `${baseSlug}-${suffix++}`;
-  }
-
-  const product = await prisma.product.create({
+  await prisma.product.update({
+    where: { id },
     data: {
       title,
-      slug,
       subtitle,
-      shortDescription,
-      longDescription,
       priceCents,
       salePriceCents,
-      status: status as any, // ProductStatus
-      type: type as any,     // ProductType
+      shortDescription,
+      longDescription,
+      type: type as any,
+      status: status as any,
       ageMin,
       ageMax,
       sku,
       thumbnailUrl,
       featured,
-      vendorId: vendor.id,
     },
   });
 
-  revalidatePath('/products');
   revalidatePath('/admin/products');
-  redirect(`/products/${product.slug}`);
+  revalidatePath('/products');
+  redirect('/admin/products');
 }
 
-export default function NewProductPage() {
+export default async function EditProductPage({ params }: Props) {
+  const { id } = await params;
+
+  const product = await prisma.product.findUnique({
+    where: { id },
+    include: { vendor: true },
+  });
+
+  if (!product) {
+    return (
+      <main className="max-w-xl mx-auto py-10 px-4">
+        <h1 className="text-2xl font-bold mb-4">Product not found</h1>
+        <Link href="/admin/products" className="text-blue-600 hover:underline">
+          ← Back to products
+        </Link>
+      </main>
+    );
+  }
+
+  const price = (product.priceCents / 100).toFixed(2);
+  const salePrice =
+    product.salePriceCents != null
+      ? (product.salePriceCents / 100).toFixed(2)
+      : '';
+
   return (
     <main className="max-w-3xl mx-auto py-10 px-4 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Add New Product</h1>
+        <h1 className="text-3xl font-bold">Edit Product</h1>
         <Link href="/admin/products" className="text-sm text-blue-600 hover:underline">
-          ← Back to products
+          ← Back to list
         </Link>
       </div>
 
-      <form action={createProduct} className="space-y-6">
+      <p className="text-sm text-gray-600">
+        Store:{' '}
+        <span className="font-medium">
+          {product.vendor?.name ?? 'Unknown vendor'}
+        </span>
+      </p>
+
+      <form action={updateProduct} className="space-y-6">
+        <input type="hidden" name="id" value={product.id} />
+
         <section className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1" htmlFor="title">
@@ -121,22 +129,22 @@ export default function NewProductPage() {
               id="title"
               name="title"
               type="text"
+              defaultValue={product.title}
               required
               className="w-full border rounded px-3 py-2 text-sm"
-              placeholder="e.g. World War II Simulation"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-1" htmlFor="subtitle">
-              Subtitle (optional)
+              Subtitle
             </label>
             <input
               id="subtitle"
               name="subtitle"
               type="text"
+              defaultValue={product.subtitle ?? ''}
               className="w-full border rounded px-3 py-2 text-sm"
-              placeholder="e.g. A 3-day immersive classroom experience"
             />
           </div>
 
@@ -151,15 +159,15 @@ export default function NewProductPage() {
                 type="number"
                 min="0"
                 step="0.01"
+                defaultValue={price}
                 required
                 className="w-full border rounded px-3 py-2 text-sm"
-                placeholder="e.g. 39.00"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1" htmlFor="salePrice">
-                Sale Price (optional)
+                Sale Price
               </label>
               <input
                 id="salePrice"
@@ -167,21 +175,21 @@ export default function NewProductPage() {
                 type="number"
                 min="0"
                 step="0.01"
+                defaultValue={salePrice}
                 className="w-full border rounded px-3 py-2 text-sm"
-                placeholder="e.g. 29.00"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1" htmlFor="sku">
-                SKU (optional)
+                SKU
               </label>
               <input
                 id="sku"
                 name="sku"
                 type="text"
+                defaultValue={product.sku ?? ''}
                 className="w-full border rounded px-3 py-2 text-sm"
-                placeholder="e.g. WW2-SIM-001"
               />
             </div>
           </div>
@@ -199,8 +207,8 @@ export default function NewProductPage() {
               id="shortDescription"
               name="shortDescription"
               rows={3}
+              defaultValue={product.shortDescription ?? ''}
               className="w-full border rounded px-3 py-2 text-sm"
-              placeholder="1–3 sentence overview that appears in product lists."
             />
           </div>
 
@@ -209,14 +217,14 @@ export default function NewProductPage() {
               className="block text-sm font-medium mb-1"
               htmlFor="longDescription"
             >
-              Long Description (optional)
+              Long Description
             </label>
             <textarea
               id="longDescription"
               name="longDescription"
               rows={6}
+              defaultValue={product.longDescription ?? ''}
               className="w-full border rounded px-3 py-2 text-sm"
-              placeholder="Detailed information about how the simulation works, what’s included, schedule, etc."
             />
           </div>
         </section>
@@ -230,7 +238,7 @@ export default function NewProductPage() {
               <select
                 id="type"
                 name="type"
-                defaultValue="DIGITAL_DOWNLOAD"
+                defaultValue={product.type}
                 className="w-full border rounded px-3 py-2 text-sm"
               >
                 <option value="DIGITAL_DOWNLOAD">Digital Download</option>
@@ -247,7 +255,7 @@ export default function NewProductPage() {
               <select
                 id="status"
                 name="status"
-                defaultValue="PUBLISHED"
+                defaultValue={product.status}
                 className="w-full border rounded px-3 py-2 text-sm"
               >
                 <option value="DRAFT">Draft</option>
@@ -262,7 +270,12 @@ export default function NewProductPage() {
                 Featured
               </label>
               <div className="flex items-center gap-2">
-                <input id="featured" name="featured" type="checkbox" />
+                <input
+                  id="featured"
+                  name="featured"
+                  type="checkbox"
+                  defaultChecked={product.featured}
+                />
                 <span className="text-xs text-gray-600">
                   Show in featured sections
                 </span>
@@ -273,29 +286,29 @@ export default function NewProductPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1" htmlFor="ageMin">
-                Age Minimum (optional)
+                Age Minimum
               </label>
               <input
                 id="ageMin"
                 name="ageMin"
                 type="number"
                 min="0"
+                defaultValue={product.ageMin ?? ''}
                 className="w-full border rounded px-3 py-2 text-sm"
-                placeholder="e.g. 12"
               />
             </div>
 
             <div>
               <label className="block text-sm font-medium mb-1" htmlFor="ageMax">
-                Age Maximum (optional)
+                Age Maximum
               </label>
               <input
                 id="ageMax"
                 name="ageMax"
                 type="number"
                 min="0"
+                defaultValue={product.ageMax ?? ''}
                 className="w-full border rounded px-3 py-2 text-sm"
-                placeholder="e.g. 18"
               />
             </div>
           </div>
@@ -305,14 +318,14 @@ export default function NewProductPage() {
               className="block text-sm font-medium mb-1"
               htmlFor="thumbnailUrl"
             >
-              Thumbnail URL (optional)
+              Thumbnail URL
             </label>
             <input
               id="thumbnailUrl"
               name="thumbnailUrl"
               type="text"
+              defaultValue={product.thumbnailUrl ?? ''}
               className="w-full border rounded px-3 py-2 text-sm"
-              placeholder="Later we’ll replace this with uploads"
             />
           </div>
         </section>
@@ -321,7 +334,7 @@ export default function NewProductPage() {
           type="submit"
           className="inline-flex items-center justify-center rounded bg-black text-white px-4 py-2 text-sm font-semibold hover:bg-gray-800"
         >
-          Create Product
+          Save Changes
         </button>
       </form>
     </main>
